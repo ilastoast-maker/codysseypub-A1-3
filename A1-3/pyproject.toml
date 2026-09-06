@@ -1,0 +1,15 @@
+[project]
+name = "novel-radar"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "google-genai>=1.0.0",
+  "pydantic>=2.0,<3.0",
+]
+
+[tool.vercel]
+entrypoint = "api.index:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
