@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+RESEARCH_MODEL = os.getenv("GEMINI_RESEARCH_MODEL", MODEL_NAME)
+SYNTHESIS_MODEL = os.getenv("GEMINI_SYNTHESIS_MODEL", "gemini-2.5-flash-lite")
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite")
 MAX_TITLE_LENGTH = 200
 MIN_GROUNDED_SOURCES = 1
 
@@ -103,6 +106,25 @@ def _client():
     return genai.Client(api_key=api_key)
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    text = str(exc).lower()
+    return code == 429 or "resource_exhausted" in text or "quota exceeded" in text
+
+
+def _generate_with_quota_fallback(client, *, primary_model: str, fallback_model: str | None = None, **kwargs):
+    try:
+        return client.models.generate_content(model=primary_model, **kwargs)
+    except Exception as exc:
+        if (
+            fallback_model
+            and fallback_model != primary_model
+            and _is_quota_error(exc)
+        ):
+            return client.models.generate_content(model=fallback_model, **kwargs)
+        raise
+
+
 def _safe_web_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
@@ -180,8 +202,10 @@ def _research_work(title: str) -> ResearchResult:
     search_tool = types.Tool(google_search=types.GoogleSearch())
     last_response = None
     for force_search in (False, True):
-        response = client.models.generate_content(
-            model=MODEL_NAME,
+        response = _generate_with_quota_fallback(
+            client,
+            primary_model=RESEARCH_MODEL,
+            fallback_model=FALLBACK_MODEL,
             contents=_research_prompt(title, force_search=force_search),
             config=types.GenerateContentConfig(
                 system_instruction=(
@@ -250,8 +274,10 @@ def _synthesize(title: str, research: ResearchResult) -> NovelAnalysis:
     last_error: Exception | None = None
 
     for attempt in range(2):
-        response = client.models.generate_content(
-            model=MODEL_NAME,
+        response = _generate_with_quota_fallback(
+            client,
+            primary_model=SYNTHESIS_MODEL,
+            fallback_model=RESEARCH_MODEL,
             contents=_synthesis_prompt(title, research),
             config=types.GenerateContentConfig(
                 system_instruction=(
@@ -288,7 +314,12 @@ def analyze_title(title: str) -> AnalyzeResponse:
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "model": MODEL_NAME}
+    return {
+        "status": "ok",
+        "model": RESEARCH_MODEL,
+        "synthesis_model": SYNTHESIS_MODEL,
+        "fallback_model": FALLBACK_MODEL,
+    }
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
@@ -301,6 +332,16 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             raise HTTPException(status_code=500, detail=message) from exc
         if "Google Search 근거" in message:
             raise HTTPException(status_code=422, detail=message) from exc
+        if _is_quota_error(exc) or (exc.__cause__ and _is_quota_error(exc.__cause__)):
+            raise HTTPException(
+                status_code=429,
+                detail="현재 AI 무료 사용량 한도에 도달했습니다. 잠시 후 또는 일일 할당량 초기화 후 다시 시도해주세요.",
+            ) from exc
         raise HTTPException(status_code=502, detail=f"AI 분석 실패: {message}") from exc
     except Exception as exc:
+        if _is_quota_error(exc):
+            raise HTTPException(
+                status_code=429,
+                detail="현재 AI 무료 사용량 한도에 도달했습니다. 잠시 후 또는 일일 할당량 초기화 후 다시 시도해주세요.",
+            ) from exc
         raise HTTPException(status_code=502, detail=f"AI 분석 실패: {exc}") from exc
