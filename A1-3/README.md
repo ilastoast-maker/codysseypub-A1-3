@@ -54,8 +54,7 @@ Lord of the Mysteries
 ### AI / Search
 - Google Gemini API (`google-genai`)
 - Google Search Grounding
-- 검색 기본 모델: `gemini-2.5-flash`
-- 구조화 분석 기본 모델: `gemini-2.5-flash-lite`
+- 기본 모델: `gemini-2.5-flash`
 
 ### Deployment / Collaboration
 - Vercel
@@ -67,8 +66,7 @@ Lord of the Mysteries
 사용자 작품명
   → POST /api/analyze
   → 1차 Gemini + Google Search Grounding
-       · 기본: gemini-2.5-flash
-       · 무료 쿼터 소진 시 gemini-2.5-flash-lite fallback
+       · 모델: gemini-2.5-flash
        · 작품 식별
        · 공식/서지 정보
        · 독자 리뷰
@@ -76,7 +74,7 @@ Lord of the Mysteries
        · grounding sources / search queries 확보
   → 출처가 없으면 재검색 → 그래도 없으면 422 근거 부족
   → 2차 Gemini 구조화 분석
-       · 기본: gemini-2.5-flash-lite
+       · 동일 모델: gemini-2.5-flash
        · Pydantic structured JSON 변환
        · JSON 생성 오류 시 1회 자동 재시도
   → 출처 URL은 서버가 grounding metadata에서 직접 추가
@@ -121,12 +119,7 @@ GEMINI_API_KEY=실제 Gemini API 키
 
 ```text
 GEMINI_MODEL=gemini-2.5-flash
-GEMINI_RESEARCH_MODEL=gemini-2.5-flash
-GEMINI_SYNTHESIS_MODEL=gemini-2.5-flash-lite
-GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite
 ```
-
-`GEMINI_MODEL`은 기존 설정과의 호환을 위해 유지됩니다. `GEMINI_RESEARCH_MODEL`을 지정하지 않으면 `GEMINI_MODEL` 값을 사용합니다.
 
 API 키는 HTML이나 GitHub 저장소에 직접 저장하지 않습니다.
 
@@ -240,8 +233,7 @@ node tests/test_frontend.js
 - 출처 URL은 2차 생성 모델이 작성하지 않고 Google grounding metadata에서만 가져옵니다.
 - 동명 작품/근거 충돌 시 `confidence`와 `evidence_note`에 불확실성을 표시합니다.
 - 구조화 JSON이 불완전한 경우 자동으로 한 번 더 생성합니다.
-- 특정 Gemini 모델의 무료 요청 한도가 소진되면 검색 단계에서 Flash-Lite fallback을 시도합니다.
-- 무료 사용량이 모두 소진된 경우 긴 SDK 내부 오류 대신 사용자용 429 안내를 표시합니다.
+- 무료 사용량이 소진된 경우 긴 SDK 내부 오류 대신 사용자용 429 안내를 표시합니다.
 - 프론트는 필수 JSON 필드를 검증하고 타임아웃을 처리합니다.
 
 ## 제출 문서
@@ -250,4 +242,4 @@ node tests/test_frontend.js
 - 서비스 기획서: `SERVICE_PLAN.md`
 - 테스트 기록: `TEST_REPORT.md`
 
-제출 시 별도로 데스크톱/모바일/AI 기능 동작 화면 스크린샷과 AI 코딩 도구 사용 과정 증빙을 첨부합니다.
+제출 시 별도로 데스크톱/모바일/AI 기능 동작 화면 스크린샷과 AI 코딩 도구 사용 과정 증빙을 첨부합니다. AI 기능 동작 결과 스크린샷은 무료 API 할당량이 사용 가능한 시점에 추가할 수 있습니다.
