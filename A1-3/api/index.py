@@ -662,6 +662,31 @@ def list_models() -> dict:
         return {"error": str(exc)}
 
 
+@app.get("/api/test_model")
+def test_model(model_name: str) -> dict:
+    key = _nvidia_key()
+    if not key:
+        return {"error": "no key"}
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 10,
+    }
+    req = urllib.request.Request(
+        NVIDIA_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "NovelRadar/2.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return {"status": resp.status, "data": json.loads(resp.read().decode("utf-8"))}
+    except urllib.error.HTTPError as exc:
+        return {"error_code": exc.code, "detail": exc.read().decode("utf-8", errors="replace")}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.post("/api/analyze")
 def analyze(request: AnalyzeRequest) -> StreamingResponse:
     return StreamingResponse(
