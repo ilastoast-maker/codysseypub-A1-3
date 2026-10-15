@@ -478,18 +478,23 @@ def nvidia_chat_stream(
     key: str,
     timeout: float,
     on_chars: Callable[[int, int], None],
+    model: str | None = None,
 ) -> str:
     """NVIDIA chat completion을 스트리밍으로 받아 전체 content를 돌려준다.
 
     on_chars(content_chars, reasoning_chars)로 진행 상황을 알린다.
     """
+    target_model = model or NVIDIA_MODEL
     payload = {
-        "model": NVIDIA_MODEL,
+        "model": target_model,
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": NVIDIA_MAX_TOKENS,
         "stream": True,
     }
+    if "deepseek" in target_model.lower():
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+
     request = urllib.request.Request(
         NVIDIA_API_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -497,6 +502,7 @@ def nvidia_chat_stream(
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
+            "User-Agent": "NovelRadar/2.0",
         },
         method="POST",
     )
@@ -521,6 +527,8 @@ def run_analysis(title: str, search_text: str, key: str, deadline: float, progre
         {"role": "user", "content": build_analysis_prompt(title, search_text)},
     ]
     last_error: Exception | None = None
+    fallback_model = "meta/llama-3.3-70b-instruct"
+
     for attempt in range(2):
         remaining = deadline - time.monotonic()
         if remaining < 10:
@@ -536,17 +544,23 @@ def run_analysis(title: str, search_text: str, key: str, deadline: float, progre
             elif reasoning_chars:
                 progress(base + min(reasoning_chars // 400, span // 3), "AI가 리뷰를 읽고 판단하는 중")
 
+        model_to_use = NVIDIA_MODEL if (attempt == 0 or NVIDIA_MODEL == fallback_model) else fallback_model
+        call_timeout = min(45.0, remaining - 5) if (attempt == 0 and NVIDIA_MODEL != fallback_model) else (remaining - 3)
+
         try:
-            reply = nvidia_chat_stream(messages, key, timeout=remaining - 3, on_chars=on_chars)
+            reply = nvidia_chat_stream(messages, key, timeout=call_timeout, on_chars=on_chars, model=model_to_use)
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
                 raise AnalysisError(429, "AI(NVIDIA) 사용량 한도에 도달했습니다. 잠시 후 다시 시도해주세요.") from exc
             if exc.code in (401, 403):
                 raise AnalysisError(500, "NVIDIA API 키(nvidia_key)가 올바르지 않습니다.") from exc
             if exc.code == 404:
-                raise AnalysisError(500, f"NVIDIA 모델({NVIDIA_MODEL})을 찾을 수 없습니다. NVIDIA_MODEL 환경변수를 확인해주세요.") from exc
+                raise AnalysisError(500, f"NVIDIA 모델({model_to_use})을 찾을 수 없습니다. NVIDIA_MODEL 환경변수를 확인해주세요.") from exc
             raise AnalysisError(502, f"AI 분석 실패: NVIDIA API 오류 ({exc.code})") from exc
         except (TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt == 0 and (deadline - time.monotonic()) >= 15:
+                continue
             raise AnalysisError(504, "AI 분석 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.") from exc
 
         try:
