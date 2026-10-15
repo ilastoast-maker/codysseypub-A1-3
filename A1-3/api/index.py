@@ -641,6 +641,23 @@ def health() -> dict:
     }
 
 
+@app.get("/api/models")
+def list_models() -> dict:
+    key = _nvidia_key()
+    if not key:
+        return {"error": "nvidia_key not set"}
+    try:
+        req = urllib.request.Request(
+            "https://integrate.api.nvidia.com/v1/models",
+            headers={"Authorization": f"Bearer {key}", "Accept": "application/json", "User-Agent": "NovelRadar/2.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return {"models": [m.get("id") for m in data.get("data", [])]}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.post("/api/analyze")
 def analyze(request: AnalyzeRequest) -> StreamingResponse:
     return StreamingResponse(
