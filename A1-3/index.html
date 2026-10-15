@@ -24,7 +24,7 @@
 </nav>
 <section id="home" class="py-20 bg-indigo-50"><div class="max-w-5xl mx-auto px-4 text-center"><h1 class="text-4xl md:text-5xl font-extrabold text-gray-900 mb-6">결제하기 전, <span class="text-indigo-600">선발대</span>에게 물어보세요</h1><p class="text-lg text-gray-600 mb-4 max-w-3xl mx-auto">AI가 작품 정보와 공개 리뷰를 찾아 읽고, 도입부와 매력 포인트, 그리고 <span class="font-semibold text-indigo-700">끝까지 읽어야만 알 수 있는 호불호 요소</span>를 한국어로 정리해드립니다.</p><p class="text-sm text-gray-500 mb-8 max-w-3xl mx-auto">한국어는 물론 영어·중국어·일본어 원제도 그대로 입력하세요. 연재 중단 이력, 결말 호불호, 국내 정식 연재처까지 결제 전에 확인하세요.</p><a href="#analyze" class="inline-block bg-indigo-600 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-indigo-700">작품 분석해보기</a></div></section>
 <section id="about" class="py-16 bg-white"><div class="max-w-5xl mx-auto px-4"><h2 class="text-3xl font-bold text-center mb-4">제목만 넣으면, 읽기 전 핵심이 보입니다</h2><p class="text-center text-gray-500 mb-12 max-w-2xl mx-auto">낯선 해외 작품도 원제 그대로 검색하고, 복잡한 리뷰는 태그와 한국어 요약으로 간단하게 확인하세요.</p><div class="grid md:grid-cols-3 gap-8"><div class="p-6 bg-gray-50 rounded-xl border"><div class="text-3xl mb-4">🌍</div><h3 class="font-bold text-xl mb-2">원제 그대로 검색</h3><p class="text-gray-600 text-sm">한국어·영어·중국어·일본어 제목을 그대로 입력하면 작품을 찾아 원제, 작가, 출처와 동명 작품 여부를 확인합니다.</p></div><div class="p-6 bg-gray-50 rounded-xl border"><div class="text-3xl mb-4">🏷️</div><h3 class="font-bold text-xl mb-2">한눈에 보는 키워드</h3><p class="text-gray-600 text-sm">메인 장르, 연재 상태, 국내 연재 플랫폼과 대표 호불호 요소를 키워드로 보여줍니다. 나머지는 펼쳐서 확인하세요.</p></div><div class="p-6 bg-gray-50 rounded-xl border"><div class="text-3xl mb-4">🔒</div><h3 class="font-bold text-xl mb-2">스포일러 없이 사고 방지</h3><p class="text-gray-600 text-sm">초반 전개까지만 소개하고, 새드엔딩·주인공 사망 같은 결말 요소는 직접 눌러야 보이게 했습니다.</p></div></div></div></section>
-<section id="analyze" class="py-16 bg-gray-100 min-h-screen"><div class="max-w-4xl mx-auto px-4"><div class="bg-white rounded-2xl shadow-xl p-6 md:p-10 border border-gray-200"><h2 class="text-2xl font-bold mb-2">🔍 작품 검색 기반 분석기</h2><p class="text-gray-500 text-sm mb-6">작품 제목 또는 원제를 입력하세요. 예: 诡秘之主 / Lord of the Mysteries</p><div class="flex flex-col sm:flex-row gap-3"><input type="text" id="novelInput" maxlength="200" placeholder="작품명 입력" class="flex-1 border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"><button id="analyzeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center justify-center gap-2"><span id="btnText">분석하기</span><div id="loadingSpinner" class="loader hidden"></div></button></div><div id="errorBox" class="hidden mt-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium"></div><div id="progressPanel" class="hidden mt-8 flex flex-col items-center gap-3" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="분석 진행률">
+<section id="analyze" class="py-16 bg-gray-100 min-h-screen"><div class="max-w-4xl mx-auto px-4"><div class="bg-white rounded-2xl shadow-xl p-6 md:p-10 border border-gray-200"><h2 class="text-2xl font-bold mb-2">🔍 작품 검색 기반 분석기</h2><p class="text-gray-500 text-sm mb-2">작품 제목 또는 원제를 입력하세요.</p><div class="flex flex-wrap items-center gap-2 mb-6 text-xs text-gray-500"><span>추천 예시:</span><button type="button" class="sample-keyword bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 border border-gray-200 px-2.5 py-1 rounded-md transition cursor-pointer">诡秘之主</button><button type="button" class="sample-keyword bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 border border-gray-200 px-2.5 py-1 rounded-md transition cursor-pointer">Lord of the Mysteries</button><button type="button" class="sample-keyword bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 border border-gray-200 px-2.5 py-1 rounded-md transition cursor-pointer">전지적 독자 시점</button><button type="button" class="sample-keyword bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 border border-gray-200 px-2.5 py-1 rounded-md transition cursor-pointer">나 혼자만 레벨업</button></div><div class="flex flex-col sm:flex-row gap-3"><input type="text" id="novelInput" maxlength="200" placeholder="작품명 입력" class="flex-1 border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"><button id="analyzeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center justify-center gap-2"><span id="btnText">분석하기</span><div id="loadingSpinner" class="loader hidden"></div></button></div><div id="errorBox" class="hidden mt-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium"></div><div id="progressPanel" class="hidden mt-8 flex flex-col items-center gap-3" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="분석 진행률">
   <div class="relative w-32 h-32">
     <svg viewBox="0 0 120 120" class="w-32 h-32 -rotate-90">
       <circle cx="60" cy="60" r="52" fill="none" stroke="#e5e7eb" stroke-width="10"></circle>
@@ -37,12 +37,15 @@
   <p id="progressStage" class="text-sm text-gray-600">분석 준비 중</p>
   <p class="text-xs text-gray-400">작품 하나를 분석하는 데 30초~1분 30초 정도 걸려요.</p>
 </div><div id="resultContainer" class="hidden mt-8 space-y-6 pt-6 border-t border-gray-200">
-  <div>
-    <div class="flex flex-wrap items-center gap-2 mb-1">
-      <h3 id="identifiedTitle" class="font-bold text-xl text-gray-900"></h3>
-      <span id="confidenceBadge" class="px-2 py-0.5 text-xs rounded-full border"></span>
+  <div class="flex flex-wrap justify-between items-start gap-4">
+    <div>
+      <div class="flex flex-wrap items-center gap-2 mb-1">
+        <h3 id="identifiedTitle" class="font-bold text-xl text-gray-900"></h3>
+        <span id="confidenceBadge" class="px-2 py-0.5 text-xs rounded-full border"></span>
+      </div>
+      <p id="identityMeta" class="text-sm text-gray-500"></p>
     </div>
-    <p id="identityMeta" class="text-sm text-gray-500"></p>
+    <button id="copyBtn" type="button" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 transition flex items-center gap-1.5 font-medium cursor-pointer">📋 요약 복사</button>
   </div>
 
   <div>
@@ -364,6 +367,29 @@ async function analyze() {
 
 analyzeBtn.addEventListener('click', analyze);
 inputElement.addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+document.querySelectorAll('.sample-keyword').forEach(btn => {
+  btn.addEventListener('click', () => {
+    inputElement.value = btn.textContent.trim();
+    inputElement.focus();
+  });
+});
+const copyBtn = document.getElementById('copyBtn');
+if (copyBtn) {
+  copyBtn.addEventListener('click', () => {
+    const title = document.getElementById('identifiedTitle').textContent;
+    const meta = document.getElementById('identityMeta').textContent;
+    const tags = Array.from(document.getElementById('summaryTags').children).map(c => c.textContent).join(' ');
+    const info = document.getElementById('infoBar').textContent;
+    const story = document.getElementById('resStory').textContent;
+    const charm = document.getElementById('resCharm').textContent;
+    const text = `[Novel Radar 웹소설 분석 결과]\n📌 ${title}\n${meta}\n🏷️ ${tags}\nℹ️ ${info}\n\n📖 도입부와 초반 전개:\n${story}\n\n✨ 매력 포인트:\n${charm}\n\n출처: https://novel-rader.vercel.app/`;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = '✓ 복사 완료!';
+      setTimeout(() => { copyBtn.textContent = orig; }, 2000);
+    }).catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

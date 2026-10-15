@@ -363,10 +363,10 @@ def run_searches(title: str, key: str, progress: ProgressFn) -> list[tuple[Searc
         deduped.append((q, unique))
 
     if not any(hits for _, hits in deduped):
-        if errors and all(_is_quota_error(e) for e in errors):
-            raise AnalysisError(429, "검색 API 사용량 한도에 도달했습니다. 잠시 후 다시 시도해주세요.")
-        if errors and all(_is_auth_error(e) for e in errors):
+        if errors and any(_is_auth_error(e) for e in errors):
             raise AnalysisError(500, "검색 API 키(travily_key)가 올바르지 않습니다.")
+        if errors and any(_is_quota_error(e) for e in errors):
+            raise AnalysisError(429, "검색 API 사용량 한도에 도달했습니다. 잠시 후 다시 시도해주세요.")
         raise AnalysisError(422, "검색 결과를 찾지 못했습니다. 작품명이 너무 모호하거나 공개 자료가 부족할 수 있습니다.")
     return deduped
 
