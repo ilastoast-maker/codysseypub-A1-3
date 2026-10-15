@@ -57,6 +57,10 @@ def test_health():
     assert response.json()["model"] == api.MODEL_NAME
 
 
+def test_research_defaults_to_flash_lite():
+    assert api.MODEL_NAME == "gemini-2.5-flash-lite" or "GEMINI_MODEL" in __import__("os").environ
+
+
 def test_blank_title_is_422():
     response = client.post("/api/analyze", json={"title": "   "})
     assert response.status_code == 422
@@ -243,7 +247,7 @@ def test_synthesize_uses_structured_json_schema_and_review_memo():
         search_queries=["review"],
         search_entry_point=None,
     )
-    with patch.object(api, "_client", return_value=fake_client), patch.object(api, "_google_sdk", return_value=(None, fake_types)):
+    with patch.object(api, "_nvidia_key", return_value=None), patch.object(api, "_client", return_value=fake_client), patch.object(api, "_google_sdk", return_value=(None, fake_types)):
         result = api._synthesize("작품", research)
 
     assert "초반이 느리다" in captured["contents"]
@@ -353,3 +357,63 @@ def test_full_pipeline_fake_google_search_to_reader_analysis():
     assert result.genre_tags == ["#판타지", "#미스터리"]
     assert result.google_search_entry_point == "<div>Google Search</div>"
     assert len(result.checklist) == len(api.CHECKLIST_INDEX)
+
+
+# --- NVIDIA 2단계 정리 -------------------------------------------------------
+
+def _research():
+    return api.ResearchResult(memo="독자 리뷰 메모", sources=[], search_queries=[], search_entry_point=None)
+
+
+def _analysis_json():
+    return analysis_obj().model_dump_json()
+
+
+def test_nvidia_key_reads_lowercase_env_name():
+    with patch.dict("os.environ", {"nvidia_key": " nv-123 "}, clear=False):
+        assert api._nvidia_key() == "nv-123"
+
+
+def test_extract_json_object_handles_fences_and_prose():
+    assert api._extract_json_object('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert api._extract_json_object('결과입니다: {"a": {"b": 2}} 끝') == '{"a": {"b": 2}}'
+
+
+def test_synthesize_prefers_nvidia_when_key_present():
+    calls = []
+
+    def fake_chat(messages, key, timeout):
+        calls.append(messages)
+        return "```json\n" + _analysis_json() + "\n```"
+
+    with patch.object(api, "_nvidia_key", return_value="nv"), patch.object(api, "_nvidia_chat", side_effect=fake_chat), \
+            patch.object(api, "_synthesize_with_gemini", side_effect=AssertionError("Gemini should not be called")):
+        result = api._synthesize("작품", _research())
+    assert len(calls) == 1
+    assert "독자 리뷰 메모" in calls[0][1]["content"]
+    assert '"checklist"' in calls[0][1]["content"]  # 스키마 전달
+    assert result.serial_status == "완결"
+
+
+def test_nvidia_invalid_json_is_retried_with_validation_error():
+    replies = iter(['{"identified_title": "x"}', _analysis_json()])
+    seen = []
+
+    def fake_chat(messages, key, timeout):
+        seen.append(messages)
+        return next(replies)
+
+    with patch.object(api, "_nvidia_chat", side_effect=fake_chat):
+        result = api._synthesize_with_nvidia("작품", _research(), "nv")
+    assert len(seen) == 2
+    assert "스키마 검증에 실패" in seen[1][-1]["content"]
+    assert result.genre_tags == ["#판타지", "#미스터리"]
+
+
+def test_nvidia_failure_falls_back_to_gemini():
+    with patch.object(api, "_nvidia_key", return_value="nv"), \
+            patch.object(api, "_nvidia_chat", side_effect=RuntimeError("NVIDIA API 오류 (429)")), \
+            patch.object(api, "_synthesize_with_gemini", return_value=analysis_obj()) as gemini:
+        result = api._synthesize("작품", _research())
+    gemini.assert_called_once()
+    assert result.serial_status == "완결"

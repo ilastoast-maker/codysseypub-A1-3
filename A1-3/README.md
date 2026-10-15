@@ -62,7 +62,8 @@ Lord of the Mysteries
 ### AI / Search
 - Google Gemini API (`google-genai`)
 - Google Search Grounding
-- 기본 모델: `gemini-2.5-flash`
+- 검색·조사 모델: `gemini-2.5-flash-lite` (Google Search grounding)
+- JSON 정리 모델: NVIDIA API `meta/llama-3.3-70b-instruct` (키가 없거나 실패하면 Gemini로 대체)
 
 ### Deployment / Collaboration
 - Vercel
@@ -74,7 +75,7 @@ Lord of the Mysteries
 사용자 작품명
   → POST /api/analyze
   → 1차 Gemini + Google Search Grounding
-       · 모델: gemini-2.5-flash
+       · 모델: gemini-2.5-flash-lite
        · 작품 식별
        · 공식/서지 정보
        · 독자 리뷰
@@ -82,9 +83,9 @@ Lord of the Mysteries
        · 초반 진입장벽, 호불호 요소 26개 항목 조사
        · grounding sources 확보 (내부 검증용, 응답에는 미포함)
   → 출처가 없으면 재검색 → 그래도 없으면 422 근거 부족
-  → 2차 Gemini 구조화 분석
-       · 동일 모델: gemini-2.5-flash
-       · Pydantic structured JSON 변환
+  → 2차 구조화 분석 (Gemini 호출 절약)
+       · NVIDIA API(OpenAI 호환) + JSON Schema 프롬프트 → Pydantic 검증, 실패 시 1회 재요청
+       · nvidia_key가 없거나 NVIDIA가 실패하면 Gemini structured output으로 대체
        · JSON 생성 오류 시 1회 자동 재시도
   → 서버가 체크리스트를 전체 카탈로그로 확장 (누락 항목은 확인불가)
   → 프론트에서 요약 키워드 + 초반 소개 + 체크리스트 표시
@@ -122,13 +123,18 @@ Vercel Project Settings → Environment Variables에 다음 값을 설정합니�
 
 ```text
 GEMINI_API_KEY=실제 Gemini API 키
+nvidia_key=NVIDIA API 키 (선택, NVIDIA_API_KEY도 인식)
 ```
 
 선택적으로 모델을 변경할 수 있습니다.
 
 ```text
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-2.5-flash-lite
+NVIDIA_MODEL=meta/llama-3.3-70b-instruct
+NVIDIA_BUDGET_SECONDS=30
 ```
+
+`/api/health`의 `synthesis` 값으로 2단계가 NVIDIA와 Gemini 중 무엇을 쓰는지 확인할 수 있습니다.
 
 API 키는 HTML이나 GitHub 저장소에 직접 저장하지 않습니다.
 
@@ -178,7 +184,7 @@ curl -X POST http://localhost:3000/api/analyze \
 
 1. GitHub 저장소 `ilastoast-maker/codysseypub-A1-3`를 Vercel에 Import합니다.
 2. Root Directory를 `A1-3`로 지정합니다.
-3. Environment Variables에 `GEMINI_API_KEY`를 등록합니다.
+3. Environment Variables에 `GEMINI_API_KEY`와 `nvidia_key`를 등록합니다.
 4. `main` 브랜치를 Production 배포와 연결합니다.
 5. 배포 후 `/`, `/api/health`, 실제 작품 분석을 순서대로 확인합니다.
 
