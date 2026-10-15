@@ -41,7 +41,7 @@ NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.2-11b-vision-instruct")
 NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_MAX_TOKENS = int(os.getenv("NVIDIA_MAX_TOKENS", "8000"))
 # 진행률 계산용 예상 JSON 길이(문자 수)
-EXPECTED_JSON_CHARS = 2400
+EXPECTED_JSON_CHARS = 1800
 
 # Vercel 함수 최대 실행 시간(vercel.json maxDuration=120) 안에서 쓸 전체 예산
 REQUEST_BUDGET_SECONDS = float(os.getenv("REQUEST_BUDGET_SECONDS", "110"))
@@ -424,9 +424,9 @@ def build_analysis_prompt(title: str, search_text: str) -> str:
   읽고 싶어지도록 소개하되 과장하지 마세요.
 - charm_points: 독자들이 반복적으로 꼽는 장점. 스포일러 금지.
 - similar_works: 검색 결과에서 독자들이 실제로 비교·추천한 작품만 0~3개. 없으면 빈 배열.
-- checklist: 아래 모든 key에 대해 하나씩 판정하세요.
+- checklist: 검색 결과에서 근거가 발견된 항목이나 주의가 필요한 항목 위주로 작성하세요 (언급되지 않은 key는 서버가 '확인불가'로 자동 확장하므로 26개를 전부 나열할 필요가 없습니다).
   · 언급됨: 검색 결과에 해당 요소가 있다는 근거가 있음. note에 근거를 한 문장으로.
-  · 언급없음: 관련 언급을 찾지 못함. '없다'고 단정하는 뜻이 아닙니다. note는 빈 문자열.
+  · 언급없음: 관련 언급을 찾지 못함. note는 빈 문자열.
   · 확인불가: 근거가 상충하거나 자료 자체가 부족함. note는 빈 문자열.
   혐오 표현은 있는지 여부만 판정하고, note에 대상 국가·민족 이름을 쓰지 마세요.
 {_checklist_prompt_lines()}
