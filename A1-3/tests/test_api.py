@@ -57,8 +57,30 @@ def test_health():
     assert response.json()["model"] == api.MODEL_NAME
 
 
-def test_research_defaults_to_flash_lite():
-    assert api.MODEL_NAME == "gemini-2.5-flash-lite" or "GEMINI_MODEL" in __import__("os").environ
+def test_research_defaults_to_3_5_flash_lite():
+    assert api.MODEL_NAME == "gemini-3.5-flash-lite" or "GEMINI_MODEL" in __import__("os").environ
+
+
+def test_gemini_3_keeps_default_temperature():
+    with patch.object(api, "MODEL_NAME", "gemini-3.5-flash-lite"):
+        assert api._gemini_temperature(0.2) is None
+    with patch.object(api, "MODEL_NAME", "gemini-2.5-flash"):
+        assert api._gemini_temperature(0.2) == 0.2
+
+
+def test_model_not_found_is_detected():
+    exc = RuntimeError("404 NOT_FOUND. This model models/gemini-2.5-flash-lite is no longer available to new users.")
+    assert api._is_model_unavailable(exc)
+    assert not api._is_model_unavailable(RuntimeError("upstream timeout"))
+
+
+def test_model_not_found_returns_clear_500():
+    err = RuntimeError("AI 실패")
+    err.__cause__ = RuntimeError("404 NOT_FOUND model is no longer available")
+    with patch.object(api, "analyze_title", side_effect=err):
+        response = client.post("/api/analyze", json={"title": "test"})
+    assert response.status_code == 500
+    assert "GEMINI_MODEL" in response.json()["detail"]
 
 
 def test_blank_title_is_422():

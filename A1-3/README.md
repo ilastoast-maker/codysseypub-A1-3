@@ -62,7 +62,7 @@ Lord of the Mysteries
 ### AI / Search
 - Google Gemini API (`google-genai`)
 - Google Search Grounding
-- 검색·조사 모델: `gemini-2.5-flash-lite` (Google Search grounding)
+- 검색·조사 모델: `gemini-3.5-flash-lite` (Google Search grounding)
 - JSON 정리 모델: NVIDIA API `meta/llama-3.3-70b-instruct` (키가 없거나 실패하면 Gemini로 대체)
 
 ### Deployment / Collaboration
@@ -75,7 +75,7 @@ Lord of the Mysteries
 사용자 작품명
   → POST /api/analyze
   → 1차 Gemini + Google Search Grounding
-       · 모델: gemini-2.5-flash-lite
+       · 모델: gemini-3.5-flash-lite
        · 작품 식별
        · 공식/서지 정보
        · 독자 리뷰
@@ -129,7 +129,7 @@ nvidia_key=NVIDIA API 키 (선택, NVIDIA_API_KEY도 인식)
 선택적으로 모델을 변경할 수 있습니다.
 
 ```text
-GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash-lite
 NVIDIA_MODEL=meta/llama-3.3-70b-instruct
 NVIDIA_BUDGET_SECONDS=30
 ```
