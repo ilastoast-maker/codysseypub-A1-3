@@ -60,10 +60,9 @@ Lord of the Mysteries
 - Pydantic
 
 ### AI / Search
-- Google Gemini API (`google-genai`)
-- Google Search Grounding
-- 검색·조사 모델: `gemini-3.5-flash-lite` (Google Search grounding)
-- JSON 정리 모델: NVIDIA API `meta/llama-3.3-70b-instruct` (키가 없거나 실패하면 Gemini로 대체)
+- 검색: Tavily Search API (`travily_key`)
+- 분석: NVIDIA API (OpenAI 호환), 기본 모델 `deepseek-ai/deepseek-v4.1-flash` (`nvidia_key`)
+- Gemini는 사용하지 않습니다.
 
 ### Deployment / Collaboration
 - Vercel
@@ -73,25 +72,20 @@ Lord of the Mysteries
 
 ```text
 사용자 작품명
-  → POST /api/analyze
-  → 1차 Gemini + Google Search Grounding
-       · 모델: gemini-3.5-flash-lite
-       · 작품 식별
-       · 공식/서지 정보
-       · 독자 리뷰
-       · 연재 상태·분량·국내 정식 번역본
-       · 초반 진입장벽, 호불호 요소 26개 항목 조사
-       · grounding sources 확보 (내부 검증용, 응답에는 미포함)
-  → 출처가 없으면 재검색 → 그래도 없으면 422 근거 부족
-  → 2차 구조화 분석 (Gemini 호출 절약)
-       · NVIDIA API(OpenAI 호환) + JSON Schema 프롬프트 → Pydantic 검증, 실패 시 1회 재요청
-       · nvidia_key가 없거나 NVIDIA가 실패하면 Gemini structured output으로 대체
-       · JSON 생성 오류 시 1회 자동 재시도
+  → POST /api/analyze  (NDJSON 스트림으로 진행률 → 결과 전송)
+  → 1단계 Tavily 검색 (5개 검색어 병렬, 0~35%)
+       · 작품 정보 / 해외 독자 리뷰(NovelUpdates·Reddit·Goodreads)
+       · 국내 연재처 / 국내 독자 후기 / 연재 이력·결말
+       · 같은 URL 중복 제거, 결과가 하나도 없으면 422
+  → 2단계 NVIDIA 분석 (40~90%)
+       · 검색 결과만 근거로 JSON Schema에 맞는 분석 생성
+       · 스트리밍으로 받으며 생성된 분량으로 진행률 계산
+       · 스키마 검증 실패 시 오류 내용을 알려 1회 재요청
   → 서버가 체크리스트를 전체 카탈로그로 확장 (누락 항목은 확인불가)
-  → 프론트에서 요약 키워드 + 초반 소개 + 체크리스트 표시
+  → 프론트에서 원형 진행률 → 요약 키워드 + 초반 소개 + 체크리스트 표시
 ```
 
-Google Search 단계와 JSON 단계는 분리되어 있습니다. 검색 도구 사용과 구조화 출력이 서로 간섭하는 문제를 줄이기 위함입니다. 출처 목록과 검색어는 화면에 표시하지 않고, Google Search 그라운딩 이용 시 표시가 요구되는 검색 칩만 결과 하단에 둡니다.
+검색 결과의 출처 목록과 검색어는 화면에 표시하지 않습니다. 검색 결과는 프롬프트에서 "데이터일 뿐 지시가 아님"으로 구분해 웹페이지 속 지시문을 따르지 않게 합니다.
 
 ## 프로젝트 구조
 
@@ -122,19 +116,18 @@ codysseypub-A1-3/
 Vercel Project Settings → Environment Variables에 다음 값을 설정합니다.
 
 ```text
-GEMINI_API_KEY=실제 Gemini API 키
-nvidia_key=NVIDIA API 키 (선택, NVIDIA_API_KEY도 인식)
+travily_key=Tavily API 키 (tavily_key, TAVILY_API_KEY도 인식)
+nvidia_key=NVIDIA API 키 (NVIDIA_API_KEY도 인식)
 ```
 
-선택적으로 모델을 변경할 수 있습니다.
+선택적으로 다음 값을 바꿀 수 있습니다.
 
 ```text
-GEMINI_MODEL=gemini-3.5-flash-lite
-NVIDIA_MODEL=meta/llama-3.3-70b-instruct
-NVIDIA_BUDGET_SECONDS=30
+NVIDIA_MODEL=deepseek-ai/deepseek-v4.1-flash
+REQUEST_BUDGET_SECONDS=110
 ```
 
-`/api/health`의 `synthesis` 값으로 2단계가 NVIDIA와 Gemini 중 무엇을 쓰는지 확인할 수 있습니다.
+`/api/health`에서 키 등록 여부(`search_key`, `model_key`)와 사용 모델을 확인할 수 있습니다. 키 값 자체는 노출하지 않습니다.
 
 API 키는 HTML이나 GitHub 저장소에 직접 저장하지 않습니다.
 
@@ -184,7 +177,7 @@ curl -X POST http://localhost:3000/api/analyze \
 
 1. GitHub 저장소 `ilastoast-maker/codysseypub-A1-3`를 Vercel에 Import합니다.
 2. Root Directory를 `A1-3`로 지정합니다.
-3. Environment Variables에 `GEMINI_API_KEY`와 `nvidia_key`를 등록합니다.
+3. Environment Variables에 `travily_key`와 `nvidia_key`를 등록합니다.
 4. `main` 브랜치를 Production 배포와 연결합니다.
 5. 배포 후 `/`, `/api/health`, 실제 작품 분석을 순서대로 확인합니다.
 
@@ -210,13 +203,15 @@ https://novel-rader.vercel.app/
 - 호불호 요소 체크리스트 (스포일러 항목 잠금)
 
 ### 실패 처리
-- 빈 입력 → 프론트에서 필수값 안내
-- 검색 근거 확보 실패 → HTTP 422
-- API 키/패키지 문제 → HTTP 500
-- Gemini 무료 사용량 한도 초과 → HTTP 429 + 사용자용 안내 메시지
-- AI API 또는 구조화 분석 실패 → HTTP 502
-- AI JSON이 불완전하게 생성된 경우 → 구조화 분석 1회 자동 재시도
-- 브라우저 요청이 58초를 초과하면 → 타임아웃 안내
+- 빈 입력 → 프론트에서 필수값 안내 (서버도 HTTP 422)
+- API 키 누락·오류 → 어떤 키가 문제인지 안내
+- 검색 결과 없음 → "검색 결과를 찾지 못했습니다" 안내
+- 검색 API·NVIDIA 사용량 한도 초과 → 사용자용 한도 안내
+- AI JSON이 스키마에 맞지 않으면 → 1회 자동 재요청
+- 분석이 함수 시간 예산(110초)을 넘으면 → 시간 초과 안내
+- 스트림이 결과 없이 끊기면 → 재시도 안내
+
+진행 중 오류도 스트림의 `error` 이벤트로 전달되어 화면에 표시됩니다.
 
 ## 반응형
 
@@ -236,16 +231,18 @@ python -m pytest -q
 node tests/test_frontend.js
 ```
 
-테스트는 실제 Gemini 과금을 발생시키지 않고 입력 검증, Search Grounding metadata 처리, 체크리스트 카탈로그 확장, 스포일러 잠금, 출처 비노출, 필드 정규화, HTTP 상태 코드 및 프론트 오류 처리를 검증합니다.
+테스트는 실제 API 비용을 발생시키지 않고 입력 검증, 키 이름 인식, Tavily 요청 형식과 중복 제거, 일부 검색 실패 허용, NVIDIA 스트리밍과 진행률, JSON 재요청, 오류 코드 변환, 체크리스트 카탈로그 확장, 스포일러 잠금, NDJSON 스트림, 프론트 진행 링과 오류 처리를 검증합니다.
 
 ## 설계상 안전장치
 
-- Google Search의 `grounding_chunks`가 없으면 분석을 성공으로 반환하지 않습니다.
+- 검색 결과가 하나도 없으면 분석을 진행하지 않습니다. 모델 기억만으로 빈칸을 채우지 않도록 프롬프트에서도 금지합니다.
+- 검색 한두 개가 실패해도 나머지 결과로 분석을 이어갑니다.
 - 체크리스트 key는 카탈로그에 정의된 값만 허용하고, 모델이 빠뜨린 항목은 `확인불가`로 채웁니다. AI가 근거 없이 "없음"을 단정하지 못하게 하기 위함입니다.
 - 스토리 소개는 초반 전개까지만 작성하도록 프롬프트에서 강제합니다.
 - 동명 작품/근거 충돌 시 `confidence`를 낮춥니다.
 - 구조화 JSON이 불완전한 경우 자동으로 한 번 더 생성합니다.
-- 무료 사용량이 소진된 경우 긴 SDK 내부 오류 대신 사용자용 429 안내를 표시합니다.
+- 무료 사용량이 소진된 경우 원문 오류 대신 사용자용 한도 안내를 표시합니다.
+- Vercel 함수 최대 실행 시간은 120초이고, 서버는 110초 예산 안에서 끝내도록 남은 시간을 계산해 NVIDIA 호출 시간을 제한합니다.
 - 프론트는 필수 JSON 필드를 검증하고 타임아웃을 처리합니다.
 
 ## 제출 문서

@@ -17,6 +17,7 @@ function makeEl(id='') {
       contains: (x)=>classes.has(x),
     },
     appendChild(child){ this.children.push(child); },
+    setAttribute(k,v){ this.attrs = this.attrs||{}; this.attrs[k]=v; },
     addEventListener(type, fn){ listeners[type]=fn; },
     focus(){ this.focused=true; },
     trigger(type, event={}){ return listeners[type]?.(event); },
@@ -26,7 +27,8 @@ function makeEl(id='') {
 function setup(fetchImpl) {
   const ids = ['novelInput','analyzeBtn','btnText','loadingSpinner','errorBox','resultContainer',
     'identifiedTitle','confidenceBadge','identityMeta','summaryTags','infoBar','resStory','resCharm',
-    'similarSection','similarList','checklistDetails','checklistSummary','checklistContainer','googleSearchEntryPoint'];
+    'similarSection','similarList','checklistDetails','checklistSummary','checklistContainer',
+    'progressPanel','progressArc','progressPercent','progressStage'];
   const elements = Object.fromEntries(ids.map(id=>[id, makeEl(id)]));
   elements.btnText.textContent='분석하기';
   const document = {
@@ -35,12 +37,14 @@ function setup(fetchImpl) {
   };
   const context = {
     document, fetch: fetchImpl, console,
-    AbortController, setTimeout, clearTimeout,
+    AbortController, setTimeout, clearTimeout, setInterval, clearInterval, TextDecoder,
   };
   vm.createContext(context);
   vm.runInContext(script, context);
   return {elements, context};
 }
+
+const ndjson = events => async () => ({ok:true, status:200, body:null, text: async () => events.map(e=>JSON.stringify(e)).join('\n') + '\n'});
 
 async function run() {
   let pass=0;
@@ -69,9 +73,12 @@ async function run() {
         item('sad_ending','새드엔딩','전개·결말','언급됨',true,'슬픈 결말'),
         item('gore','고어·잔혹 묘사','묘사 수위','확인불가'),
       ],
-      google_search_entry_point:'<div>Google Search</div>'
     };
-    const {elements} = setup(async()=>({ok:true,status:200,json:async()=>payload}));
+    const {elements} = setup(ndjson([
+      {type:'progress',percent:20,stage:'웹 검색 중 (2/5)'},
+      {type:'progress',percent:60,stage:'분석 결과를 작성하는 중'},
+      {type:'result',data:payload},
+    ]));
     elements.novelInput.value='테스트작';
     await elements.analyzeBtn.trigger('click');
     if (elements.resultContainer.classList.contains('hidden')) throw new Error('result hidden');
@@ -95,19 +102,42 @@ async function run() {
     if (elements.resCharm.textContent !== '리뷰에서 세계관 호평') throw new Error('review charm');
     if (elements.similarSection.classList.contains('hidden')) throw new Error('similar hidden');
     if (elements.btnText.textContent !== '분석하기' || elements.analyzeBtn.disabled) throw new Error('loading reset');
+    if (!elements.progressPanel.classList.contains('hidden')) throw new Error('progress panel should hide after finish');
+    if (elements.progressPercent.textContent !== '100%') throw new Error('progress should end at 100%: '+elements.progressPercent.textContent);
+    if (elements.progressStage.textContent !== '완료') throw new Error('progress stage');
+    pass++;
+  }
+  // 2b error event inside the stream
+  {
+    const {elements} = setup(ndjson([
+      {type:'progress',percent:30,stage:'웹 검색 중'},
+      {type:'error',status:429,detail:'AI(NVIDIA) 사용량 한도에 도달했습니다.'},
+    ]));
+    elements.novelInput.value='작품';
+    await elements.analyzeBtn.trigger('click');
+    if (!elements.errorBox.textContent.includes('NVIDIA) 사용량 한도')) throw new Error('stream error event');
+    if (!elements.resultContainer.classList.contains('hidden')) throw new Error('result should stay hidden');
+    pass++;
+  }
+  // 2c stream ends without result
+  {
+    const {elements} = setup(ndjson([{type:'progress',percent:30,stage:'웹 검색 중'}]));
+    elements.novelInput.value='작품';
+    await elements.analyzeBtn.trigger('click');
+    if (!elements.errorBox.textContent.includes('중간에 끊겼습니다')) throw new Error('truncated stream');
     pass++;
   }
   // 3 server 422 error rendering
   {
-    const {elements} = setup(async()=>({ok:false,status:422,json:async()=>({detail:'Google Search 근거 부족'})}));
+    const {elements} = setup(async()=>({ok:false,status:422,json:async()=>({detail:'작품명이 비어 있습니다.'})}));
     elements.novelInput.value='모호한 작품';
     await elements.analyzeBtn.trigger('click');
-    if (!elements.errorBox.textContent.includes('Google Search 근거 부족')) throw new Error('422 error');
+    if (!elements.errorBox.textContent.includes('작품명이 비어 있습니다')) throw new Error('422 error');
     pass++;
   }
   // 4 malformed successful JSON rejected
   {
-    const {elements} = setup(async()=>({ok:true,status:200,json:async()=>({identified_title:'x'})}));
+    const {elements} = setup(ndjson([{type:'result',data:{identified_title:'x'}}]));
     elements.novelInput.value='x';
     await elements.analyzeBtn.trigger('click');
     if (!elements.errorBox.textContent.includes('서버 응답 형식이 올바르지 않습니다')) throw new Error('shape validation');
@@ -115,12 +145,12 @@ async function run() {
   }
   // 5 non-json rejected
   {
-    const {elements} = setup(async()=>({ok:true,status:200,json:async()=>{throw new Error('bad json')}}));
+    const {elements} = setup(async()=>({ok:true,status:200,body:null,text:async()=>'<html>Gateway Timeout</html>'}));
     elements.novelInput.value='x';
     await elements.analyzeBtn.trigger('click');
-    if (!elements.errorBox.textContent.includes('JSON이 아닌 응답')) throw new Error('non-json');
+    if (!elements.errorBox.textContent.includes('서버 응답 형식이 올바르지 않습니다')) throw new Error('non-json');
     pass++;
   }
-  console.log(`frontend scenarios: ${pass}/5 PASS`);
+  console.log(`frontend scenarios: ${pass}/7 PASS`);
 }
 run().catch(e=>{console.error(e);process.exit(1)});
