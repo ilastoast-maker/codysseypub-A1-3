@@ -467,10 +467,20 @@ def _iter_sse_deltas(response) -> Iterator[tuple[str, str]]:
             return
         try:
             chunk = json.loads(data)
-            delta = chunk["choices"][0].get("delta") or {}
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            choice = choices[0]
+            delta = choice.get("delta") or {}
+            finish_reason = choice.get("finish_reason")
         except (ValueError, KeyError, IndexError, TypeError):
             continue
-        yield str(delta.get("content") or ""), str(delta.get("reasoning_content") or delta.get("reasoning") or "")
+        content = str(delta.get("content") or "")
+        reasoning = str(delta.get("reasoning_content") or delta.get("reasoning") or "")
+        if content or reasoning:
+            yield content, reasoning
+        if finish_reason:
+            return
 
 
 def nvidia_chat_stream(
@@ -516,6 +526,15 @@ def nvidia_chat_stream(
                 content_chars += len(content)
             reasoning_chars += len(reasoning)
             on_chars(content_chars, reasoning_chars)
+            # 온전한 JSON 객체가 닫히고 파싱 가능하면 스트림을 조기 종료하여 불필요한 대기를 방지한다
+            if content and ("}" in content or "```" in content):
+                candidate = "".join(content_parts)
+                try:
+                    obj_str = extract_json_object(candidate)
+                    json.loads(obj_str)
+                    break
+                except Exception:
+                    pass
             if time.monotonic() > deadline:
                 raise TimeoutError("NVIDIA 응답 시간이 예산을 초과했습니다.")
     return "".join(content_parts)
