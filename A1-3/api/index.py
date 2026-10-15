@@ -34,14 +34,14 @@ MAX_TITLE_LENGTH = 200
 TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com/search")
 TAVILY_TIMEOUT_SECONDS = float(os.getenv("TAVILY_TIMEOUT_SECONDS", "20"))
 TAVILY_MAX_RESULTS = 5
-SNIPPET_CHARS = 700
+SNIPPET_CHARS = 500
 
 # 2단계: NVIDIA 분석
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.2-11b-vision-instruct")
 NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_MAX_TOKENS = int(os.getenv("NVIDIA_MAX_TOKENS", "8000"))
 # 진행률 계산용 예상 JSON 길이(문자 수)
-EXPECTED_JSON_CHARS = 5500
+EXPECTED_JSON_CHARS = 2400
 
 # Vercel 함수 최대 실행 시간(vercel.json maxDuration=120) 안에서 쓸 전체 예산
 REQUEST_BUDGET_SECONDS = float(os.getenv("REQUEST_BUDGET_SECONDS", "110"))
@@ -528,8 +528,8 @@ def run_analysis(title: str, search_text: str, key: str, deadline: float, progre
     ]
     last_error: Exception | None = None
     fallback_model = (
-        "meta/llama-3.2-90b-vision-instruct"
-        if NVIDIA_MODEL == "meta/llama-3.2-11b-vision-instruct"
+        "meta/llama-3.2-11b-vision-instruct"
+        if "llama" in NVIDIA_MODEL.lower()
         else "meta/llama-3.2-11b-vision-instruct"
     )
 
@@ -549,7 +549,8 @@ def run_analysis(title: str, search_text: str, key: str, deadline: float, progre
                 progress(base + min(reasoning_chars // 400, span // 3), "AI가 리뷰를 읽고 판단하는 중")
 
         model_to_use = NVIDIA_MODEL if (attempt == 0 or NVIDIA_MODEL == fallback_model) else fallback_model
-        call_timeout = min(45.0, remaining - 5) if (attempt == 0 and NVIDIA_MODEL != fallback_model) else (remaining - 3)
+        # 1차 시도에서는 토큰 생성이 중도에 끊기지 않도록 잔여 시간(남은 예산 - 5초)을 온전히 활용한다.
+        call_timeout = max(10.0, remaining - 5) if attempt == 0 else max(5.0, remaining - 3)
 
         try:
             reply = nvidia_chat_stream(messages, key, timeout=call_timeout, on_chars=on_chars, model=model_to_use)
