@@ -37,7 +37,7 @@ TAVILY_MAX_RESULTS = 5
 SNIPPET_CHARS = 700
 
 # 2단계: NVIDIA 분석
-NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "mistralai/mistral-large-2-instruct")
+NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.2-11b-vision-instruct")
 NVIDIA_API_URL = os.getenv("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
 NVIDIA_MAX_TOKENS = int(os.getenv("NVIDIA_MAX_TOKENS", "8000"))
 # 진행률 계산용 예상 JSON 길이(문자 수)
@@ -528,9 +528,9 @@ def run_analysis(title: str, search_text: str, key: str, deadline: float, progre
     ]
     last_error: Exception | None = None
     fallback_model = (
-        "nvidia/llama-3.1-nemotron-70b-instruct"
-        if NVIDIA_MODEL == "mistralai/mistral-large-2-instruct"
-        else "mistralai/mistral-large-2-instruct"
+        "meta/llama-3.2-90b-vision-instruct"
+        if NVIDIA_MODEL == "meta/llama-3.2-11b-vision-instruct"
+        else "meta/llama-3.2-11b-vision-instruct"
     )
 
     for attempt in range(2):
