@@ -3,7 +3,9 @@
 Pipeline:
 1) Gemini + Google Search grounding researches/identifies the work and gathers web evidence.
 2) A second Gemini call converts ONLY the grounded research memo into a strict Pydantic JSON schema.
-3) Grounding sources/search metadata are appended by the server (never invented by the synthesis model).
+3) The server expands the checklist to the full catalog (missing items -> 확인불가) and
+   attaches only the Google Search entry point chip required by the grounding terms.
+   Raw source lists and search queries are used internally and not returned.
 """
 
 from __future__ import annotations
@@ -36,45 +38,182 @@ class AnalyzeRequest(BaseModel):
         return value
 
 
+# ---------------------------------------------------------------------------
+# 호불호(지뢰) 체크리스트 카탈로그
+# key는 모델이 채우는 식별자, label은 화면 표기, spoiler=True면 눌러야 보인다.
+# ---------------------------------------------------------------------------
+CHECKLIST_CATALOG: dict[str, list[dict]] = {
+    "관계·로맨스": [
+        {"key": "harem", "label": "하렘"},
+        {"key": "reverse_harem", "label": "역하렘"},
+        {"key": "ntr_cheating", "label": "NTR·바람"},
+        {"key": "love_triangle", "label": "삼각관계"},
+        {"key": "lead_swap", "label": "남주·여주 교체", "spoiler": True},
+        {"key": "no_romance", "label": "로맨스 없음"},
+        {"key": "same_sex", "label": "동성 관계 비중"},
+    ],
+    "주인공": [
+        {"key": "frustrating", "label": "고구마 구간"},
+        {"key": "unlikable_mc", "label": "비호감·악인형 주인공"},
+        {"key": "overpowered", "label": "먼치킨"},
+        {"key": "mc_suffering", "label": "피폐·학대 묘사"},
+    ],
+    "전개·결말": [
+        {"key": "hiatus_dropped", "label": "연재 중단·장기 휴재 이력"},
+        {"key": "rushed_ending", "label": "용두사미·급전개 완결"},
+        {"key": "forced_plot", "label": "억지 전개"},
+        {"key": "self_repetition", "label": "자기복제·반복 전개"},
+        {"key": "setting_collapse", "label": "설정 붕괴"},
+        {"key": "sad_ending", "label": "새드엔딩", "spoiler": True},
+        {"key": "open_ending", "label": "열린 결말", "spoiler": True},
+        {"key": "mc_death", "label": "주인공 사망", "spoiler": True},
+        {"key": "major_death", "label": "주요 인물 사망", "spoiler": True},
+    ],
+    "묘사 수위": [
+        {"key": "gore", "label": "고어·잔혹 묘사"},
+        {"key": "sexual", "label": "선정성"},
+        {"key": "animal_harm", "label": "동물 학대"},
+        {"key": "child_harm", "label": "아동 피해 묘사"},
+    ],
+    "혐오 표현": [
+        {"key": "hate_race", "label": "혐오(인종)"},
+        {"key": "hate_nation", "label": "혐오(국가)"},
+    ],
+}
+CHECKLIST_INDEX: dict[str, tuple[str, dict]] = {
+    item["key"]: (category, item)
+    for category, items in CHECKLIST_CATALOG.items()
+    for item in items
+}
+ChecklistKey = Literal[tuple(CHECKLIST_INDEX)]  # type: ignore[valid-type]
+MENTIONED, NOT_MENTIONED, UNKNOWN = "언급됨", "언급없음", "확인불가"
+UNKNOWN_TEXT = "확인 불가"
+
+
+def _normalize_tag_list(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for value in values:
+        value = str(value).strip()
+        if not value:
+            continue
+        if not value.startswith("#"):
+            value = f"#{value}"
+        if value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
+class KoreanRelease(BaseModel):
+    platform: str = Field(description="한국어 정식 서비스 플랫폼명 (예: 카카오페이지, 네이버 시리즈, 리디, 문피아)")
+    note: str = Field(description="번역본 연재 상태/화수 등 짧은 메모. 모르면 빈 문자열")
+
+
+class SimilarWork(BaseModel):
+    title: str = Field(description="비교·추천되는 작품명")
+    reason: str = Field(description="독자들이 어떤 점에서 비슷하다고 말하는지 한 문장")
+
+
+class ChecklistFinding(BaseModel):
+    key: ChecklistKey = Field(description="체크리스트 항목 key")
+    status: Literal["언급됨", "언급없음", "확인불가"] = Field(
+        description="언급됨=조사 메모의 리뷰/정보에서 확인됨, 언급없음=관련 언급을 찾지 못함, 확인불가=근거가 상충하거나 자료 자체가 부족"
+    )
+    note: str = Field(description="언급됨일 때 근거 요약 한 문장. 아니면 빈 문자열")
+
+
 class NovelAnalysis(BaseModel):
-    identified_title: str = Field(description="검색 근거로 식별한 대표 작품명")
+    identified_title: str = Field(description="검색 근거로 식별한 대표 작품명 (한국어 정식명이 있으면 한국어)")
     original_title: str = Field(description="확인 가능한 원제. 불명확하면 '확인 불가'")
     author: str = Field(description="확인 가능한 작가명. 불명확하면 '확인 불가'")
-    origin: str = Field(description="원작 언어/국가 등 확인 가능한 출처 정보")
-    confidence: Literal["높음", "중간", "낮음"] = Field(description="작품 식별 및 분석 신뢰도")
-    genre_tags: list[str] = Field(description="장르 태그. 각 항목은 #으로 시작")
-    atmosphere_tags: list[str] = Field(description="분위기/전개 태그. 각 항목은 #으로 시작")
-    translation_tags: list[str] = Field(description="한국어 번역/현지화 관련 태그. 근거가 없으면 #확인불가")
-    story_arc_map: str = Field(description="검색 근거 범위 내 스포일러 최소화 스토리 흐름 요약")
-    charm_points: str = Field(description="독자 평가와 작품 정보에 근거한 매력 포인트")
-    warning_elements: str = Field(description="지뢰 요소, 호불호, 번역/현지화 이슈. 근거 부족 시 명시")
-    evidence_note: str = Field(description="근거의 충분성/상충 여부 및 주의사항")
+    origin: str = Field(description="원작 언어/국가와 원 연재처 등 짧은 출처 정보")
+    confidence: Literal["높음", "중간", "낮음"] = Field(description="작품 식별 신뢰도")
+    genre_tags: list[str] = Field(description="메인 장르 키워드 2~4개. 각 항목은 #으로 시작")
+    serial_status: Literal["완결", "연재중", "확인불가"] = Field(description="원작 연재 상태")
+    original_length: str = Field(description="원작 분량(총 화수/권수). 불명확하면 '확인 불가'")
+    korean_releases: list[KoreanRelease] = Field(description="한국어 정식 번역본 서비스 플랫폼. 근거가 없으면 빈 배열")
+    entry_point: str = Field(description="초반 진입장벽에 대한 독자 평. 예: '초반 30화가량 느리다는 평이 많음'. 근거 없으면 '확인 불가'")
+    story_opening: str = Field(description="작품 도입부와 초반 전개만 소개. 중반 이후 사건·반전·결말은 절대 언급 금지")
+    charm_points: str = Field(description="독자 평가에 근거한 매력 포인트")
+    similar_works: list[SimilarWork] = Field(description="독자들이 비교하거나 함께 추천하는 작품 0~3개")
+    checklist: list[ChecklistFinding] = Field(description="체크리스트 모든 key에 대한 판정")
 
-    @field_validator("genre_tags", "atmosphere_tags", "translation_tags")
+    @field_validator("genre_tags")
     @classmethod
     def normalize_tags(cls, values: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        for value in values:
-            value = str(value).strip()
-            if not value:
+        return _normalize_tag_list(values)[:4]
+
+    @field_validator("korean_releases")
+    @classmethod
+    def dedupe_releases(cls, values: list[KoreanRelease]) -> list[KoreanRelease]:
+        seen: set[str] = set()
+        result: list[KoreanRelease] = []
+        for release in values:
+            name = release.platform.strip()
+            if not name or name in seen:
                 continue
-            if not value.startswith("#"):
-                value = f"#{value}"
-            if value not in cleaned:
-                cleaned.append(value)
-        return cleaned
+            seen.add(name)
+            result.append(KoreanRelease(platform=name, note=release.note.strip()))
+        return result
+
+    @field_validator("similar_works")
+    @classmethod
+    def cap_similar(cls, values: list[SimilarWork]) -> list[SimilarWork]:
+        return [v for v in values if v.title.strip()][:3]
 
 
-class Source(BaseModel):
-    title: str
-    url: str
+class ChecklistItem(BaseModel):
+    key: str
+    label: str
+    category: str
+    status: Literal["언급됨", "언급없음", "확인불가"]
+    note: str = ""
+    spoiler: bool = False
 
 
-class AnalyzeResponse(NovelAnalysis):
-    sources: list[Source]
-    search_queries: list[str]
-    grounded: bool = True
+class AnalyzeResponse(BaseModel):
+    identified_title: str
+    original_title: str
+    author: str
+    origin: str
+    confidence: Literal["높음", "중간", "낮음"]
+    genre_tags: list[str]
+    serial_status: Literal["완결", "연재중", "확인불가"]
+    original_length: str
+    korean_releases: list[KoreanRelease]
+    entry_point: str
+    story_opening: str
+    charm_points: str
+    similar_works: list[SimilarWork]
+    checklist: list[ChecklistItem]
     google_search_entry_point: str | None = None
+
+
+def build_checklist(findings: list[ChecklistFinding]) -> list[ChecklistItem]:
+    """Expand model findings to the full catalog, in catalog order.
+
+    Missing keys become 확인불가 so the model can never silently imply "없음".
+    Duplicate keys keep the first finding.
+    """
+    by_key: dict[str, ChecklistFinding] = {}
+    for finding in findings:
+        by_key.setdefault(finding.key, finding)
+    items: list[ChecklistItem] = []
+    for category, catalog_items in CHECKLIST_CATALOG.items():
+        for item in catalog_items:
+            finding = by_key.get(item["key"])
+            status = finding.status if finding else UNKNOWN
+            note = finding.note.strip() if finding and status == MENTIONED else ""
+            items.append(
+                ChecklistItem(
+                    key=item["key"],
+                    label=item["label"],
+                    category=category,
+                    status=status,
+                    note=note,
+                    spoiler=bool(item.get("spoiler")),
+                )
+            )
+    return items
 
 
 @dataclass
@@ -149,34 +288,52 @@ def _extract_grounding(response) -> tuple[list[dict[str, str]], list[str], str |
     return sources[:12], queries[:12], entry_html
 
 
+def _checklist_prompt_lines() -> str:
+    lines = []
+    for category, items in CHECKLIST_CATALOG.items():
+        labels = ", ".join(f"{item['label']}({item['key']})" for item in items)
+        lines.append(f"- {category}: {labels}")
+    return "\n".join(lines)
+
+
 def _research_prompt(title: str, force_search: bool = False) -> str:
     force = (
         "반드시 Google Search를 실제로 사용해 웹 근거를 확보하세요. 모델 기억만으로 답하지 마세요."
         if force_search
         else "Google Search를 사용해 최신 공개 웹 근거를 조사하세요."
     )
-    return f"""당신은 해외/국내 웹소설을 검증하는 리서처입니다.
+    return f"""당신은 한국 독자에게 해외/국내 웹소설을 소개하기 위해 정보를 검증하는 리서처입니다.
 사용자 입력: {title}
 {force}
 
-목표:
-1. 작품을 정확히 식별하세요. 동명 작품이 있으면 작가, 원제, 플랫폼/출판 정보를 교차 확인하세요.
-2. 가능하면 서로 다른 성격의 출처를 조사하세요.
-   - 공식/출판사/연재 플랫폼/서지 정보
-   - 독자 리뷰, 커뮤니티, 리뷰 사이트 등 실제 반응
-   - 한국어 번역판이 존재한다면 번역/현지화 품질에 대한 근거
-3. 사실과 독자 의견을 구분하세요. 여러 리뷰가 충돌하면 그 사실을 적으세요.
-4. 검색으로 확인할 수 없는 번역 논란, 오역, 스토리 사건을 만들어내지 마세요.
-5. 장문의 원문을 복사하지 말고 요약만 하세요.
-6. 스포일러는 최소화하되, 독자가 결제 전에 알아야 할 호불호/지뢰 요소는 근거가 있을 때만 요약하세요.
+서비스 목적:
+- 첫째, 좋은 작품의 도입부와 매력을 한국 독자에게 소개합니다.
+- 둘째, 끝까지 따라가야만 알 수 있는 위험(연재 중단, 슬픈 결말, 주인공 사망, 억지 전개, 자기복제 등)을
+  결제 전에 알려 독자가 사고를 겪지 않게 합니다.
 
-출력은 JSON이 아닌 한국어 조사 메모로 작성하세요. 다음 제목을 포함하세요:
+조사 항목:
+1. 작품 식별: 원제, 작가, 원 연재처. 동명 작품이 있으면 교차 확인하세요.
+2. 연재 정보: 원작 완결/연재중 여부, 총 화수(또는 권수), 연재 중단·장기 휴재 이력.
+3. 한국어 정식 번역본: 서비스 플랫폼(카카오페이지, 네이버 시리즈, 리디, 문피아 등)과 번역본 진행 상황.
+4. 초반 정보: 도입부 설정과 초반 전개, 초반 진입장벽(몇 화까지 느리다/몇 화부터 재밌다 같은 독자 평).
+5. 독자 평가: 반복적으로 언급되는 매력 포인트, 함께 비교·추천되는 작품.
+6. 호불호 요소: 아래 항목 각각에 대해 독자 리뷰·커뮤니티에서 언급이 있는지 조사하세요.
+{_checklist_prompt_lines()}
+
+규칙:
+- 사실과 독자 의견을 구분하세요. 의견이 상충하면 상충한다고 적으세요.
+- 검색으로 확인되지 않은 사건, 결말, 논란을 만들어내지 마세요. 언급을 못 찾았으면 못 찾았다고 적으세요.
+- 혐오 표현은 있는지 여부만 적고, 대상 국가·민족 이름은 적지 마세요.
+- 장문의 원문을 복사하지 말고 요약만 하세요.
+
+출력은 JSON이 아닌 한국어 조사 메모로 작성하고, 다음 제목을 포함하세요:
 [작품 식별]
-[공식/기본 정보]
-[스토리와 장르]
-[독자 평가]
-[번역/현지화]
-[주의/상충/근거 부족]
+[연재 정보]
+[한국어 정식 번역본]
+[도입부와 초반 진입장벽]
+[독자 평가와 비교 작품]
+[호불호 요소]
+[근거 부족/상충]
 """
 
 
@@ -198,7 +355,7 @@ def _research_work(title: str) -> ResearchResult:
                 ),
                 tools=[search_tool],
                 temperature=0.2,
-                max_output_tokens=3500,
+                max_output_tokens=5000,
             ),
         )
         last_response = response
@@ -214,27 +371,30 @@ def _research_work(title: str) -> ResearchResult:
 
 
 def _synthesis_prompt(title: str, research: ResearchResult) -> str:
-    source_lines = "\n".join(
-        f"- {idx + 1}. {source['title']}: {source['url']}"
-        for idx, source in enumerate(research.sources)
-    )
     return f"""아래 'Google Search로 그라운딩된 조사 메모'만 근거로 최종 분석을 작성하세요.
 사용자 입력: {title}
 
 중요 규칙:
 - 조사 메모에 없는 사실은 새로 만들어내지 마세요.
-- 번역판/오역/기계번역 논란이 검색 근거에 없으면 translation_tags에 #확인불가를 포함하고 warning_elements에도 근거 부족이라고 명시하세요.
-- 독자 의견은 보편적 사실처럼 단정하지 마세요.
-- 동명 작품 또는 작품 식별이 불확실하면 confidence를 낮추고 evidence_note에 이유를 적으세요.
-- story_arc_map은 과도한 핵심 반전 스포일러 없이 전개 성격을 설명하세요.
-- 태그는 짧게 작성하세요.
+- genre_tags: 작품을 대표하는 메인 장르 키워드 2~4개만. 짧게 (예: #현대판타지, #회귀, #무협).
+- serial_status: 원작 기준 '완결' 또는 '연재중'. 연재 중단 상태라도 여기서는 '연재중'으로 두고
+  중단 사실은 checklist의 hiatus_dropped에 기록하세요. 알 수 없으면 '확인불가'.
+- korean_releases: 한국어 정식 번역본이 서비스되는 플랫폼만. 근거가 없으면 빈 배열.
+- story_opening: 도입부 설정과 초반 전개까지만 3~5문장. 중반 이후 사건, 반전, 결말, 인물 사망은 절대 쓰지 마세요.
+  읽고 싶어지도록 소개하되 과장하지 마세요.
+- charm_points: 독자들이 반복적으로 꼽는 장점. 스포일러 금지.
+- similar_works: 조사 메모에서 독자들이 실제로 비교·추천한 작품만. 없으면 빈 배열.
+- checklist: 아래 모든 key에 대해 하나씩 판정하세요.
+  · 언급됨: 조사 메모에 해당 요소가 있다는 근거가 있음. note에 근거를 한 문장으로.
+  · 언급없음: 조사했지만 관련 언급을 찾지 못함. '없다'고 단정하는 뜻이 아닙니다.
+  · 확인불가: 근거가 상충하거나 자료 자체가 부족함.
+  혐오 표현 note에는 대상 국가·민족 이름을 쓰지 마세요.
+{_checklist_prompt_lines()}
+- 작품 식별이 불확실하면 confidence를 낮추세요.
 - 모든 출력은 한국어로 작성하세요. 고유명사/원제는 원어 병기가 가능합니다.
 
 [그라운딩 조사 메모]
 {research.memo}
-
-[검색으로 반환된 출처]
-{source_lines}
 """
 
 
@@ -267,7 +427,7 @@ def _synthesize(title: str, research: ResearchResult) -> NovelAnalysis:
                         "반드시 스키마에 맞는 완전한 JSON 객체를 끝까지 생성하세요."
                     ),
                     temperature=0.1,
-                    max_output_tokens=4000 if attempt == 0 else 5000,
+                    max_output_tokens=6000 if attempt == 0 else 8000,
                     response_mime_type="application/json",
                     response_schema=NovelAnalysis,
                 ),
@@ -291,10 +451,10 @@ def _synthesize(title: str, research: ResearchResult) -> NovelAnalysis:
 def analyze_title(title: str) -> AnalyzeResponse:
     research = _research_work(title)
     analysis = _synthesize(title, research)
+    data = analysis.model_dump(exclude={"checklist"})
     return AnalyzeResponse(
-        **analysis.model_dump(),
-        sources=[Source(**source) for source in research.sources],
-        search_queries=research.search_queries,
+        **data,
+        checklist=build_checklist(analysis.checklist),
         google_search_entry_point=research.search_entry_point,
     )
 
